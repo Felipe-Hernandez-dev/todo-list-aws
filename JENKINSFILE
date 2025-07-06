@@ -52,5 +52,12 @@ pipeline {
                 '''
             }
         }
+          stage('Reports') {
+            steps {               
+                always {
+                    cleanWs() 
+                }
+            }
+        }        
     }
 }
