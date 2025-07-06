@@ -51,13 +51,6 @@ pipeline {
                     curl -X DELETE https://9io2r4nbbd.execute-api.us-east-1.amazonaws.com/Prod/todos/{id}
                 '''
             }
-        }
-          stage('Reports') {
-            steps {               
-                always {
-                    cleanWs() 
-                }
-            }
         }        
     }
 }
