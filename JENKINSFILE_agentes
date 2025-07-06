@@ -1,0 +1,102 @@
+pipeline {
+    agent any
+
+    environment {
+        S3_BUCKET = 'todo-list-aws-felipe-123456789'
+    }
+
+    stages {
+        
+        stage('Get Code') {
+            steps {
+                git branch: 'main', url: 'https://github.com/Felipe-Hernandez-dev/todo-list-aws.git'
+                sh 'ls -la'
+                echo "${env.WORKSPACE}"
+                stash name: 'source', includes: '**/*'
+            }
+        }
+
+         stage('Static Test') {
+            parallel {
+                stage('test bandit') {
+                    agent { label 'Agent-1' }
+                    steps {
+                        unstash 'source' 
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+                            sh '''
+                                bandit -r . -f custom -o bandit.out --msg-template "{abspath}:{line}: [{test_id}] {msg}" || true
+                                whoami 
+                                hostname 
+                            '''
+                            recordIssues tools: [pyLint(name: 'Bandit', pattern: 'bandit.out')], qualityGates: [
+                                [threshold: 20, type: 'TOTAL', unstable: true]
+                            ]
+                        }
+                    }
+                }
+
+                stage('flake 8') {
+                    agent { label 'Agent-1' }
+                    steps {
+                        sh '''
+                            flake8 --format=pylint --exit-zero src > flake8.out
+                            whoami 
+                            hostname 
+                        '''
+                        recordIssues tools: [flake8(name: 'Flake8', pattern: 'flake8.out')], qualityGates: [
+                            [threshold: 150, type: 'TOTAL', unstable: true]
+                        ]
+                    }
+                }
+
+            }
+        }
+
+        stage('Deploy') {
+            agent { label 'Agent-2' }
+            steps {
+                unstash 'source'
+                script {
+                    def deployStatus = sh(script: '''
+                        sam build
+                        sam validate --region us-east-1
+                        
+                        if ! aws s3api head-bucket --bucket $S3_BUCKET 2>/dev/null; then
+                            aws s3 mb s3://$S3_BUCKET --region us-east-1
+                        fi
+
+                        sam deploy --s3-bucket $S3_BUCKET --region us-east-1 --no-confirm-changeset --capabilities CAPABILITY_IAM --stack-name staging-todo-list-aws || exit 100
+                    ''', returnStatus: true)
+
+                    if (deployStatus == 100) {
+                        echo "No changes to deploy, continuando..."
+                    } else if (deployStatus != 0) {
+                        error "Falló el despliegue"
+                    }
+                }
+                sh ''' 
+                whoami 
+                hostname 
+                '''
+            }
+        }
+
+        stage('Rest Test') {
+            agent { label 'Agent-2' }
+            when {
+                expression { currentBuild.currentResult == 'SUCCESS' || currentBuild.currentResult == 'UNSTABLE' }
+            }
+            steps {
+                sh '''
+                    curl -X POST https://9io2r4nbbd.execute-api.us-east-1.amazonaws.com/Prod/todos/ --data '{ "Hola Mundo": "Learn Serverless" }'
+                    curl https://9io2r4nbbd.execute-api.us-east-1.amazonaws.com/Prod/todos
+                    curl https://9io2r4nbbd.execute-api.us-east-1.amazonaws.com/Prod/todos/{id}   
+                    curl -X PUT https://9io2r4nbbd.execute-api.us-east-1.amazonaws.com/Prod/todos/{id} --data '{ "text": "Learn python and more", "checked": true }'
+                    curl -X DELETE https://9io2r4nbbd.execute-api.us-east-1.amazonaws.com/Prod/todos/{id}
+                    whoami 
+                    hostname 
+                '''
+            }
+        }        
+    }
+}
