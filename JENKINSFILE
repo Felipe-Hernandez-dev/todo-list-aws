@@ -9,7 +9,7 @@ pipeline {
         
         stage('Get Code') {
             steps {
-                git branch: 'main', url: 'https://github.com/Felipe-Hernandez-dev/todo-list-aws.git'
+                git branch: 'develop', url: 'https://github.com/Felipe-Hernandez-dev/todo-list-aws.git'
                 sh 'ls -la'
                 echo "${env.WORKSPACE}"
             }
@@ -80,6 +80,24 @@ pipeline {
                     curl -X PUT https://9io2r4nbbd.execute-api.us-east-1.amazonaws.com/Prod/todos/{id} --data '{ "text": "Learn python and more", "checked": true }'
                     curl -X DELETE https://9io2r4nbbd.execute-api.us-east-1.amazonaws.com/Prod/todos/{id}
                 '''
+            }
+        }
+         stage('Promote') {
+            when {
+                expression { currentBuild.currentResult == 'UNSTABLE' }
+            }
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'Git_Hub', usernameVariable: 'GITHUB_USER', passwordVariable: 'GITHUB_TOKEN')]) {
+                    dir('merge-workspace') {
+                        git branch: 'main', credentialsId: 'Credential_git', url: 'https://github.com/Felipe-Hernandez-dev/todo-list-aws.git'
+                        sh '''
+                            git remote set-url origin https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/Felipe-Hernandez-dev/todo-list-aws.git
+                            git fetch origin develop
+                            git merge origin/develop
+                            git push origin main
+                        '''
+                    }
+                }
             }
         }
     }
